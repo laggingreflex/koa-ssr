@@ -1,7 +1,7 @@
 const assert = require('assert');
 const Path = require('path');
 const URL = require('url');
-const jsdom = require('jsdom');
+const JSDOM = require('jsdom');
 const cheerio = require('cheerio');
 const fs = require('fs-promise');
 const _ = require('lodash');
@@ -9,7 +9,7 @@ const delay = require('promise-delay');
 const debug = require('debug')('koa-ssr');
 
 const createJSDOMVirtualConsole = console => ({
-  log: (console.log || console.log || console).bind(console, '[JSDOM]'),
+  log: (console.log || console).bind(console, '[JSDOM]'),
   error: (console.error || console.log || console).bind(console, '[JSDOM error]'),
   debug: (console.debug || console.log || console).bind(console, '[JSDOM debug]'),
   warn: (console.warn || console.log || console).bind(console, '[JSDOM warn]'),
@@ -57,9 +57,13 @@ module.exports = function koaSSRmiddleware(root, opts) {
   const inputHtml = inputHtmlDom.html();
   debug({ inputHtml })
 
-  const JSDOMVirtualConsole = jsdom.createVirtualConsole().sendTo(createJSDOMVirtualConsole(opts.console || debug));
+  const JSDOMVirtualConsole = JSDOM.createVirtualConsole().sendTo(createJSDOMVirtualConsole(opts.console || debug));
 
   opts.modulesLoadedEventLabel = 'onModulesLoaded'
+
+  opts.preCache = opts.preCache || ((ctx, html) => html);
+
+  opts.render = opts.render || ((ctx, html) => ctx.body = html);
 
   return function koaSSR(ctx) {
 
@@ -74,13 +78,11 @@ module.exports = function koaSSRmiddleware(root, opts) {
         cache = opts.cache[ctx.originalUrl]
       }
       if (cache) {
-        ctx.body = cache;
-        debug({ cache });
-        return;
+        return opts.render(ctx, cache);
       }
     }
 
-    const doc = jsdom.jsdom(opts.html, Object.assign({
+    const jsdom = JSDOM.jsdom(opts.html, Object.assign({
       features: {
         FetchExternalResources: ['script', 'link', 'css'],
         QuerySelector: true,
@@ -94,9 +96,9 @@ module.exports = function koaSSRmiddleware(root, opts) {
 
     }, opts.jsdom));
 
-    const window = doc.defaultView;
+    const window = jsdom.defaultView;
 
-    jsdom.changeURL(window, fullUrl);
+    JSDOM.changeURL(window, fullUrl);
 
     let resolve;
     const loaded = new Promise(r => resolve = r);
@@ -122,15 +124,47 @@ module.exports = function koaSSRmiddleware(root, opts) {
         }
       }
 
-      ctx.body = jsdom.serializeDocument(window.document);
+      const preCache = JSDOM.serializeDocument(window.document);
 
-      if (opts.cache) {
-        if (typeof opts.cache === 'function') {
-          opts.cache(ctx, ctx.body)
-        } else {
-          opts.cache[ctx.originalUrl] = ctx.body;
-        }
+      let final = opts.preCache(ctx, preCache, window);
+
+      if (!final) {
+        throw new Error(`preCache didn't return anything`);
       }
-    })
+
+      if (!final.then) {
+        final = Promise.resolve(final)
+      }
+
+      return final.then(final => {
+        if (!final) {
+          throw new Error(`preCache didn't return anything`);
+        }
+
+        if (typeof final !== 'string') {
+          try {
+            final = JSDOM.serializeDocument(final.document);
+          } catch (error) {
+            error.message = `Failed trying to serialize preCache's returned object. ` + error.message;
+            throw error;
+          }
+        }
+
+        if (!final) {
+          throw new Error(`preCache didn't return anything`);
+        }
+
+        if (opts.cache) {
+          if (typeof opts.cache === 'function') {
+            opts.cache(ctx, final)
+          } else {
+            opts.cache[ctx.originalUrl] = final;
+          }
+        }
+
+        return opts.render(ctx, final);
+
+      });
+    });
   }
 }
