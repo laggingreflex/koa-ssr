@@ -61,8 +61,6 @@ module.exports = function koaSSRmiddleware(root, opts) {
 
   opts.modulesLoadedEventLabel = 'onModulesLoaded'
 
-  opts.preCache = opts.preCache || ((ctx, html) => html);
-
   opts.render = opts.render || ((ctx, html) => ctx.body = html);
 
   return function koaSSR(ctx) {
@@ -78,7 +76,11 @@ module.exports = function koaSSRmiddleware(root, opts) {
         cache = opts.cache[ctx.originalUrl]
       }
       if (cache) {
-        return opts.render(ctx, cache);
+        if (cache.then) {
+          return cache.then(cache => opts.render(ctx, cache))
+        } else {
+          return opts.render(ctx, cache);
+        }
       }
     }
 
@@ -126,45 +128,38 @@ module.exports = function koaSSRmiddleware(root, opts) {
 
       const preCache = JSDOM.serializeDocument(window.document);
 
-      let final = opts.preCache(ctx, preCache, window);
-
-      if (!final) {
-        throw new Error(`preCache didn't return anything`);
-      }
-
-      if (!final.then) {
-        final = Promise.resolve(final)
-      }
-
-      return final.then(final => {
-        if (!final) {
-          throw new Error(`preCache didn't return anything`);
-        }
-
-        if (typeof final !== 'string') {
-          try {
-            final = JSDOM.serializeDocument(final.document);
-          } catch (error) {
-            error.message = `Failed trying to serialize preCache's returned object. ` + error.message;
-            throw error;
+      let final;
+      if (typeof opts.cache === 'function') {
+        final = opts.cache(ctx, preCache, window, JSDOM.serializeDocument);
+        assert(final, `opts.cache() didn't return anything`)
+        if (final.then) {
+          return final.then(final => {
+            assert(final, `opts.cache() didn't resolve to anything`)
+            if (typeof final !== 'string') {
+              try {
+                final = JSDOM.serializeDocument(final.document);
+              } catch (error) {
+                error.message = `Failed trying to serialize opts.cache()'s resolved object. ` + error.message;
+                throw error;
+              }
+            }
+            return opts.render(ctx, final)
+          })
+        } else {
+          if (typeof final !== 'string') {
+            try {
+              final = JSDOM.serializeDocument(final.document);
+            } catch (error) {
+              error.message = `Failed trying to serialize opts.cache()'s returned object. ` + error.message;
+              throw error;
+            }
           }
+          return opts.render(ctx, final);
         }
-
-        if (!final) {
-          throw new Error(`preCache didn't return anything`);
-        }
-
-        if (opts.cache) {
-          if (typeof opts.cache === 'function') {
-            opts.cache(ctx, final)
-          } else {
-            opts.cache[ctx.originalUrl] = final;
-          }
-        }
-
+      } else {
+        final = opts.cache[ctx.originalUrl] = preCache;
         return opts.render(ctx, final);
-
-      });
+      }
     });
   }
 }

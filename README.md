@@ -53,25 +53,6 @@ koaMiddleware = koaSSR(root, opts)
 * **`html`** `[str]` Instead of index.html, provide an html string
 * **`timeout`** `[num]` (default: **`5000`**) After which if JSDOM hasn't finished loading (i.e. `window[opts.modulesLoadedEventLabel]` hasn't been called (see below)) it throws an error (with `{ koaSSR: {ctx, window} }` property attached).
 
-* **`cache`** `[bool|obj|function]` (default: **`true`**) Whether (and where/how) to cache JSDOM responses
-  * **`false`** Doesn't uses a cache, JSDOM is run for every request
-  * **`true|{}`** Uses an object (created or provided) to store JSDOM generated response as <code><strong>{</strong>url: body<strong>}</strong></code>
-  * **`function`** Calls the function `cache(ctx, [body])` either with `body` as second argument or without it in which case expects it to be returned and used as a response. Eg.:
-
-    ```
-      koaSSR(root, {
-        cache: (ctx, body) => {
-          if (body) {
-            // store
-            cache[ctx.url] = body
-          } else {
-            // return
-            return cache[ctx.url]
-          }
-        }
-      })
-    ```
-
 * **`console`** `[obj]` (default: modified [debug]) `console` object for [JSDOM's `virtualConsole`](https://github.com/tmpvar/jsdom/#capturing-console-output) used as <code>jsdom.createVirtualConsole().sendTo(<strong>console</strong>)</code>
 
 * **`jsdom`** `[obj]` [Config](https://github.com/tmpvar/jsdom/#how-it-works) passed to JSDOM: <code>jsdom.jsdom(opts.html, <strong>opts.jsdom</strong>)</code>. Eg. for [shimming unimplemented APIs](https://github.com/tmpvar/jsdom/#shimming-unimplemented-apis):
@@ -114,6 +95,36 @@ koaMiddleware = koaSSR(root, opts)
       }
     ```
 
+* **`cache`** `[bool|obj|function]` (default: **`true`**) Whether (and where/how) to cache JSDOM responses
+  * **`false`** Doesn't uses a cache, JSDOM is run for every request
+  * **`true|{}`** Uses an object (created or provided) to store JSDOM generated response as <code><strong>{</strong>url: body<strong>}</strong></code>
+  * **`function`** Delegate caching and retriving
+
+    Called with args:
+
+    * **`ctx`** Koa's `ctx`
+    * **`[html]`** (Pre-)final HTML string to be cached
+    * **`[window]`** JSDOM's window object ([`JSDOM.jsdom(...).defaultView`](https://github.com/tmpvar/jsdom/#for-the-hardcore-jsdomjsdom))
+    * **`[serialize]`** Alias for [`JSDOM.serializeDocument`](https://github.com/tmpvar/jsdom/#serializing-a-document)
+
+    **Must return** (or resolve to) an **`html` string**
+
+    Eg.
+
+    ```
+      koaSSR(root, {
+        cache: (ctx, html, window, serialize) => {
+          if (html) {
+            // store into cache
+            someCache[ctx.url] = html
+            // or
+            someCache[ctx.url] = serialize(window.document)
+          }
+          return someCache[ctx.url];
+        }
+      })
+    ```
+
 * **`render`** `[func]` (defaut: **`(ctx, html) => ctx.body = html`**) Function responsible for sending the final `html` as a response to the client by setting `ctx.body=`.
 
   Called with args:
@@ -137,19 +148,6 @@ koaMiddleware = koaSSR(root, opts)
         }
       })
     ```
-
-* **`preCache`** `[func]` (defaut: **`(ctx, html) => html`**) Function called before caching to modify `html` in any way.
-
-  Called with args:
-
-  * **`ctx`** Koa's `ctx`
-  * **`html`** Final rendered HTML
-  * **`window`** JSDOM's window object ([`JSDOM.jsdom(...).defaultView`](https://github.com/tmpvar/jsdom/#for-the-hardcore-jsdomjsdom))
-
-It **must return** either an `html` string or the `window` object (or a promise of either).
-
-Note: JSDOM `window` object is only passed in `preCache` and not to `render` because `render` will mostly be invoked with a **cached** HTML string. Feel free to use, for eg. [cheerio] on the HTML in `render`.
-
 
 [debug]: https://www.npmjs.com/package/debug
 [cheerio]: https://github.com/cheeriojs/cheerio
