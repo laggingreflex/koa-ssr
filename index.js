@@ -68,98 +68,114 @@ module.exports = function koaSSRmiddleware(root, opts) {
     const fullUrl = ctx.protocol + '://' + ctx.host + ctx.originalUrl;
     debug({ fullUrl })
 
-    if (opts.cache) {
-      let cache
-      if (typeof opts.cache === 'function') {
-        cache = opts.cache(ctx)
-      } else {
-        cache = opts.cache[ctx.originalUrl]
-      }
-      if (cache) {
-        if (cache.then) {
-          return cache.then(cache => opts.render(ctx, cache))
+    return checkCache(invokeJSDOM);
+
+    function checkCache(next) {
+      if (opts.cache) {
+        let cache
+        if (typeof opts.cache === 'function') {
+          cache = opts.cache(ctx)
         } else {
-          return opts.render(ctx, cache);
+          cache = opts.cache[ctx.originalUrl]
+        }
+        if (cache) {
+          if (cache.then) {
+            return cache.then(cache => {
+              if (cache) {
+                return opts.render(ctx, cache)
+              } else {
+                return next();
+              }
+            })
+          } else {
+            return opts.render(ctx, cache);
+          }
+        } else {
+          return next();
         }
       }
     }
 
-    const jsdom = JSDOM.jsdom(opts.html, Object.assign({
-      features: {
-        FetchExternalResources: ['script', 'link', 'css'],
-        QuerySelector: true,
-      },
+    function invokeJSDOM() {
+      const jsdom = JSDOM.jsdom(opts.html, Object.assign({
+        features: {
+          FetchExternalResources: ['script', 'link', 'css'],
+          QuerySelector: true,
+        },
 
-      resourceLoader: (resource, cb) => readFile(Path.join(root, resource.url.pathname))
-        .then(asset => cb(null, asset))
-        .catch(cb),
+        resourceLoader: (resource, cb) => readFile(Path.join(root, resource.url.pathname))
+          .then(asset => cb(null, asset))
+          .catch(cb),
 
-      virtualConsole: JSDOMVirtualConsole,
+        virtualConsole: JSDOMVirtualConsole,
 
-    }, opts.jsdom));
+      }, opts.jsdom));
 
-    const window = jsdom.defaultView;
+      const window = jsdom.defaultView;
 
-    JSDOM.changeURL(window, fullUrl);
+      JSDOM.changeURL(window, fullUrl);
 
-    let resolve;
-    const loaded = new Promise(r => resolve = r);
+      let resolve;
+      const loaded = new Promise(r => resolve = r);
 
-    window[opts.modulesLoadedEventLabel] = () => {
-      resolve();
-      loaded.loaded = true;
-    };
+      window[opts.modulesLoadedEventLabel] = () => {
+        resolve();
+        loaded.loaded = true;
+      };
 
-    return Promise.race([loaded, delay(opts.timeout)]).then(() => {
-      resolve();
-      if (!loaded.loaded) {
-        const err = new Error(`JSDOM Timed out (${parseInt(opts.timeout/1000, 10)}s), \`window.${opts.modulesLoadedEventLabel}\` was never called.`)
-        err.koaSSR = { ctx, window };
-        throw err;
-      }
-
-      // restore modifiedScriptTags (async/defer)
-      for (const script of window.document.querySelectorAll('script')) {
-        const src = URL.parse(script.src).path;
-        if (src in modifiedScriptTags) {
-          script.setAttribute(modifiedScriptTags[src], true);
+      return Promise.race([loaded, delay(opts.timeout)]).then(() => {
+        resolve();
+        if (!loaded.loaded) {
+          const err = new Error(`JSDOM Timed out (${parseInt(opts.timeout/1000, 10)}s), \`window.${opts.modulesLoadedEventLabel}\` was never called.`)
+          err.koaSSR = { ctx, window };
+          throw err;
         }
-      }
 
-      const preCache = JSDOM.serializeDocument(window.document);
+        // restore modifiedScriptTags (async/defer)
+        for (const script of window.document.querySelectorAll('script')) {
+          const src = URL.parse(script.src).path;
+          if (src in modifiedScriptTags) {
+            script.setAttribute(modifiedScriptTags[src], true);
+          }
+        }
 
-      let final;
-      if (typeof opts.cache === 'function') {
-        final = opts.cache(ctx, preCache, window, JSDOM.serializeDocument);
-        assert(final, `opts.cache() didn't return anything`)
-        if (final.then) {
-          return final.then(final => {
-            assert(final, `opts.cache() didn't resolve to anything`)
+        const preCache = JSDOM.serializeDocument(window.document);
+
+        let final;
+        if (typeof opts.cache === 'function') {
+          final = opts.cache(ctx, preCache, window, JSDOM.serializeDocument);
+          assert(final, `opts.cache() didn't return anything`)
+          if (final.then) {
+            return final.then(final => {
+              assert(final, `opts.cache() didn't resolve to anything`)
+              if (typeof final !== 'string') {
+                try {
+                  final = JSDOM.serializeDocument(final.document);
+                } catch (error) {
+                  error.message = `Failed trying to serialize opts.cache()'s resolved object. ` + error.message;
+                  throw error;
+                }
+              }
+              return opts.render(ctx, final)
+            })
+          } else {
             if (typeof final !== 'string') {
               try {
                 final = JSDOM.serializeDocument(final.document);
               } catch (error) {
-                error.message = `Failed trying to serialize opts.cache()'s resolved object. ` + error.message;
+                error.message = `Failed trying to serialize opts.cache()'s returned object. ` + error.message;
                 throw error;
               }
             }
-            return opts.render(ctx, final)
-          })
-        } else {
-          if (typeof final !== 'string') {
-            try {
-              final = JSDOM.serializeDocument(final.document);
-            } catch (error) {
-              error.message = `Failed trying to serialize opts.cache()'s returned object. ` + error.message;
-              throw error;
-            }
+            return opts.render(ctx, final);
           }
+        } else {
+          final = opts.cache[ctx.originalUrl] = preCache;
           return opts.render(ctx, final);
         }
-      } else {
-        final = opts.cache[ctx.originalUrl] = preCache;
-        return opts.render(ctx, final);
-      }
-    });
+      });
+    }
+
+
   }
 }

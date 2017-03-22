@@ -107,8 +107,6 @@ koaMiddleware = koaSSR(root, opts)
     * **`[window]`** JSDOM's window object ([`JSDOM.jsdom(...).defaultView`](https://github.com/tmpvar/jsdom/#for-the-hardcore-jsdomjsdom))
     * **`[serialize]`** Alias for [`JSDOM.serializeDocument`](https://github.com/tmpvar/jsdom/#serializing-a-document)
 
-    **Must return** (or resolve to) an **`html` string**
-
     Eg.
 
     ```
