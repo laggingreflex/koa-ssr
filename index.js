@@ -6,16 +6,13 @@ const cheerio = require('cheerio');
 const fs = require('fs-promise');
 const _ = require('lodash');
 const delay = require('promise-delay');
-const debug = require('debug')('koa-ssr');
+const Debug = require('debug')
+const helpers = require('./helpers');
+const utils = require('./utils');
 
-const createJSDOMVirtualConsole = console => ({
-  log: (console.log || console).bind(console, '[JSDOM]'),
-  error: (console.error || console.log || console).bind(console, '[JSDOM error]'),
-  debug: (console.debug || console.log || console).bind(console, '[JSDOM debug]'),
-  warn: (console.warn || console.log || console).bind(console, '[JSDOM warn]'),
-})
-
-const defaultJSDOMVirtualConsole = createJSDOMVirtualConsole(debug);
+const debug = Debug('koa-ssr');
+const debugJSDOM = Debug('koa-ssr:jsdom');
+const debugJSDOMClient = Debug('koa-ssr:jsdom-client');
 
 const readFile = _.memoize(f => fs.readFile(f, 'utf8'));
 
@@ -57,7 +54,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
   const inputHtml = inputHtmlDom.html();
   debug({ inputHtml })
 
-  const JSDOMVirtualConsole = JSDOM.createVirtualConsole().sendTo(createJSDOMVirtualConsole(opts.console || debug));
+  const JSDOMVirtualConsole = JSDOM.createVirtualConsole().sendTo(utils.createJSDOMVirtualConsole(opts.console || debugJSDOMClient, Boolean(opts.console)));
 
   opts.modulesLoadedEventLabel = 'onModulesLoaded'
 
@@ -104,7 +101,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
         },
 
         resourceLoader: (resource, cb) => {
-          debug({ resourceLoader: resource.url.pathname });
+          debugJSDOM({ resourceLoader: resource.url.pathname });
           readFile(Path.join(root, resource.url.pathname))
             .then(asset => cb(null, asset))
             .catch(cb);
@@ -180,3 +177,5 @@ module.exports = function koaSSRmiddleware(root, opts) {
     }
   }
 }
+
+Object.assign(exports, helpers);

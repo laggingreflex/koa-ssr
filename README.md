@@ -53,7 +53,7 @@ koaMiddleware = koaSSR(root, opts)
 * **`html`** `[str]` Instead of index.html, provide an html string
 * **`timeout`** `[num]` (default: **`5000`**) After which if JSDOM hasn't finished loading (i.e. `window[opts.modulesLoadedEventLabel]` hasn't been called (see below)) it throws an error (with `{ koaSSR: {ctx, window} }` property attached).
 
-* **`console`** `[obj]` (default: modified [debug] (set `DEBUG=koa-ssr`)) `console` object for [JSDOM's `virtualConsole`](https://github.com/tmpvar/jsdom/#capturing-console-output) used as <code>jsdom.createVirtualConsole().sendTo(<strong>console</strong>)</code>
+* **`console`** `[obj]` (default: modified [debug] (set `DEBUG=koa-ssr:jsdom-client`)) `console` object for [JSDOM's `virtualConsole`](https://github.com/tmpvar/jsdom/#capturing-console-output) used as <code>jsdom.createVirtualConsole().sendTo(<strong>console</strong>)</code>
 
   Eg.
 
@@ -77,7 +77,7 @@ koaMiddleware = koaSSR(root, opts)
     })
   ```
 
-* **`modulesLoadedEventLabel`** `[str]` (default: **`'onModulesLoaded'`**) A special function is attached to `window[modulesLoadedEventLabel]` which \*\***must be called**\*\* to indicate that your app has finished rendering. Failure would result in a timeout and an error thrown (with `{ koaSSR: {ctx, window} }` property attached). See [JSDOM: Dealing with asynchronous script loading](https://github.com/tmpvar/jsdom/#dealing-with-asynchronous-script-loading) as to why you need this instead of relying on default `onload` or other such events. This can also be used as an indicator that your app is being rendered server-side so you may choose to deal with that aspect in your app as well.
+* **`modulesLoadedEventLabel`** `[str]` (default: **`'onModulesLoaded'`**) A special function is attached to `window[modulesLoadedEventLabel]` which \*\***must be called**\*\* to indicate that your app has finished rendering. Failure would result in a timeout and an error thrown (with `{ koaSSR: {ctx, window} }` property attached). See [JSDOM: Dealing with asynchronous script loading](https://github.com/tmpvar/jsdom/#dealing-with-asynchronous-script-loading) as to why it needs you to do this instead of relying on default `onload` or other such events. This can also be used as an indicator that your app is being rendered server-side so you may choose to deal with that aspect in your app as well.
 
   Eg.
 
@@ -121,8 +121,8 @@ koaMiddleware = koaSSR(root, opts)
       const cacheIndex = {}
       koaSSR(root, {
         cache: (ctx, html, window, serialize) => {
-          const url = URL.parse(ctx.url).path; // ignore '?query=xyz'
-          const filename = __dirname + '/.cache/' + sanitizeToFileName(url);
+          const url = URL.parse(ctx.url).pathname; // ignore '?query=xyz'
+          const filename = __dirname + '/.ssr-cache/' + (_.kebabCase(url) || 'home');
           if (html) {
             fs.writeFile(filename, html);
             cacheIndex[filename] = true;
@@ -140,10 +140,10 @@ koaMiddleware = koaSSR(root, opts)
         }
       })
     ```
-    <sub>(this functionality is available as a [helper function](#Helpers) **cacheToDisk**)</sub>
+    <sub>(this functionality is available as a [helper function](#helpers) **cacheToDisk**)</sub>
 
 
-    Eg. Never cache and invoke JSDOM for each request:
+    Eg. Never cache; invoke JSDOM for each request:
 
     ```
       koaSSR(root, {
@@ -210,6 +210,8 @@ Helper functions
   ```
   Options:
 
-  * **`parseUrl`** `[func]` (defaut: **`url => URL.parse(url).path`**) Parse the url
-  * **`filename`** `[func]` (defaut: **`url => '.cache/' + _.kebabCase(url)`**) Generate filename
+  * **`parseUrl`** `[func]` (defaut: **`url => URL.parse(url).pathname`**) Parse the url
+  * **`dir`** `[str]` (defaut: **`'.ssr-cache/'`**) Directory to use for cache files
+  * **`filename`** `[func]` (defaut: **`url => Path.join(opts.dir, (_.kebabCase(url) || 'home'))`**) Generate filename
+  * **`invalidatePrevious`** `[bool]` (defaut: **`false`**) Do not use cache created from a previous run
 
