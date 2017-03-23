@@ -178,7 +178,5 @@ module.exports = function koaSSRmiddleware(root, opts) {
         }
       });
     }
-
-
   }
 }

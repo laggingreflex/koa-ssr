@@ -140,6 +140,8 @@ koaMiddleware = koaSSR(root, opts)
         }
       })
     ```
+    <sub>(this functionality is available as a [helper function](#Helpers) **cacheToDisk**)</sub>
+
 
     Eg. Never cache and invoke JSDOM for each request:
 
@@ -189,3 +191,25 @@ koaMiddleware = koaSSR(root, opts)
 
 [debug]: https://www.npmjs.com/package/debug
 [cheerio]: https://github.com/cheeriojs/cheerio
+
+
+### Helpers
+
+Helper functions
+
+* **`cacheToDisk`** Helper function to be used as `opts.cache` for cahing to disk (as shown above).
+
+  ```
+    import koaSSR from 'koa-ssr'
+    import {cacheToDisk} from 'koa-ssr/helpers'
+
+    koaSSR(root, {
+      cache: cacheToDisk(opts)
+    })
+
+  ```
+  Options:
+
+  * **`parseUrl`** `[func]` (defaut: **`url => URL.parse(url).path`**) Parse the url
+  * **`filename`** `[func]` (defaut: **`url => '.cache/' + _.kebabCase(url)`**) Generate filename
+
