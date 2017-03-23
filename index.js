@@ -74,7 +74,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
     debugJSDOM('Loading resource (default):', res.url.pathname);
     readFile(Path.join(root, res.url.pathname))
       .then(asset => {
-        debugJSDOM('Loaded resource (default):', res.url.pathname, `${(asset.length/(4*8))}B`);
+        debugJSDOM('Loaded resource (default):', res.url.pathname);
         cb(null, asset);
       })
       .catch(err => {
@@ -83,7 +83,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
       });
   };
 
-  opts.resourceLoader = opts.resourceLoader || ((res, cb, def) => def(resource, cb));
+  opts.resourceLoader = opts.resourceLoader || ((res, cb, def) => def(res, cb));
 
   const JSDOMResourceLoader = (res, cb) => opts.resourceLoader(res, cb, (_res, _cb) => {
     if (_cb && _cb !== cb) {
@@ -125,6 +125,8 @@ module.exports = function koaSSRmiddleware(root, opts) {
         } else {
           return next();
         }
+      } else {
+        return next();
       }
     }
 
@@ -183,7 +185,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
                   throw error;
                 }
               }
-              return opts.render(ctx, final)
+              return opts.render(ctx, final, window, JSDOM.serializeDocument)
             })
           } else {
             if (typeof final !== 'string') {
@@ -194,11 +196,14 @@ module.exports = function koaSSRmiddleware(root, opts) {
                 throw error;
               }
             }
-            return opts.render(ctx, final);
+            return opts.render(ctx, final, window, JSDOM.serializeDocument);
           }
         } else {
-          final = opts.cache[ctx.originalUrl] = preCache;
-          return opts.render(ctx, final);
+          final = preCache;
+          if (opts.cache) {
+            opts.cache[ctx.originalUrl] = final;
+          }
+          return opts.render(ctx, final, window, JSDOM.serializeDocument);
         }
       });
     }

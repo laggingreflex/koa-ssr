@@ -153,14 +153,14 @@ koaMiddleware = koaSSR(root, opts)
           // choose a sanitized filename
           const filename = '.ssr-cache/' + (_.kebabCase(url) || 'index') + '.html';
 
-          // html is provided, so cache it:
+          // if html is provided, cache it:
           if (html) {
             fs.writeFile(filename, html);
             cacheIndex[filename] = true;
             return html; // and return it to be rendered
           }
 
-          // html isn't provided (if it reaches here)
+          // if html isn't provided...
 
           // check if filename was cached
           if (cacheIndex[filename]) {
@@ -180,31 +180,16 @@ koaMiddleware = koaSSR(root, opts)
       })
     ```
 
-    Eg. Never cache; invoke JSDOM for every request:
-
-    ```
-      koaSSR(root, {
-        cache: (ctx, html, window, serialize) => {
-          if (!html) { return; } // never cached
-
-          // do things, like insert data
-          const script = window.document.createElement('script')
-          script.innerHTML = `
-            window.userData = ${await User.findOne(ctx.user)}
-          `
-          window.document.body.appendChild(script);
-
-          return serialize(window.document)
-        }
-      })
-    ```
-
 * **`render`** `[func]` (defaut: **`(ctx, html) => ctx.body = html`**) Final function responsible for sending the final `html` as a response to the client by setting `ctx.body=`.
 
   Called with args:
 
   * **`ctx`** Koa's `ctx`
   * **`html`** Final rendered HTML
+  * **`[window]`** JSDOM's window object ([`JSDOM.jsdom(...).defaultView`](https://github.com/tmpvar/jsdom/#for-the-hardcore-jsdomjsdom))
+  * **`[serialize]`** Alias for [`JSDOM.serializeDocument`](https://github.com/tmpvar/jsdom/#serializing-a-document)
+
+  The optional arguments (window, serialize) are passed only when the page was rendered with JSDOM (either before caching for the first time, or when `cache` is set to false or `cache` function decides not to cache).
 
   Use this to customize response (even the cached response) for different users. Eg.
 
