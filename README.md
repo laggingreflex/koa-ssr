@@ -147,22 +147,35 @@ koaMiddleware = koaSSR(root, opts)
       const cacheIndex = {}
       koaSSR(root, {
         cache: (ctx, html, window, serialize) => {
+          // parse URL and omit query strings
           const url = URL.parse(ctx.url).pathname; // ignore '?query=xyz'
+
+          // choose a sanitized filename
           const filename = '.ssr-cache/' + (_.kebabCase(url) || 'index') + '.html';
+
+          // html is provided, so cache it:
           if (html) {
             fs.writeFile(filename, html);
             cacheIndex[filename] = true;
-            return html;
+            return html; // and return it to be rendered
           }
+
+          // html isn't provided (if it reaches here)
+
+          // check if filename was cached
           if (cacheIndex[filename]) {
-            ctx.type = 'html'; // (overrider stream's inferred type "application/octet-stream")
+            ctx.type = 'html'; // (override stream's inferred type "application/octet-stream")
             return fs.createReadStream(filename);
           }
-          if (await fs.exists(filename)) { // cache exists from a previous run
+
+          // check if file exists anyways (from a previous run)
+          if (await fs.exists(filename)) {
             cacheIndex[filename] = true;
             ctx.type = 'html';
             return fs.createReadStream(filename);
           }
+
+          // if nothing is returned, JSDOM will be invoked
         }
       })
     ```
