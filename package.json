@@ -1,6 +1,6 @@
 {
   "name": "koa-ssr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Koa server-side-rendering middleware using JSDOM",
   "main": "index.js",
   "repository": "laggingreflex/koa-ssr",
