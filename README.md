@@ -53,47 +53,53 @@ koaMiddleware = koaSSR(root, opts)
 * **`html`** `[str]` Instead of index.html, provide an html string
 * **`timeout`** `[num]` (default: **`5000`**) After which if JSDOM hasn't finished loading (i.e. `window[opts.modulesLoadedEventLabel]` hasn't been called (see below)) it throws an error (with `{ koaSSR: {ctx, window} }` property attached).
 
-* **`console`** `[obj]` (default: modified [debug]) `console` object for [JSDOM's `virtualConsole`](https://github.com/tmpvar/jsdom/#capturing-console-output) used as <code>jsdom.createVirtualConsole().sendTo(<strong>console</strong>)</code>
+* **`console`** `[obj]` (default: modified [debug] (set `DEBUG=koa-ssr`)) `console` object for [JSDOM's `virtualConsole`](https://github.com/tmpvar/jsdom/#capturing-console-output) used as <code>jsdom.createVirtualConsole().sendTo(<strong>console</strong>)</code>
 
-* **`jsdom`** `[obj]` [Config](https://github.com/tmpvar/jsdom/#how-it-works) passed to JSDOM: <code>jsdom.jsdom(opts.html, <strong>opts.jsdom</strong>)</code>. Eg. for [shimming unimplemented APIs](https://github.com/tmpvar/jsdom/#shimming-unimplemented-apis):
+  Eg.
 
-    ```
-      koaSSR(root, {
-        jsdom: {
-          created: (e, window) => {
-            window.localStorage = new MockLocalStorage();
-          },
-        }
-      })
-    ```
+  ```
+    koaSSR(root, {
+      console: console // native console object
+    })
+  ```
+
+* **`jsdom`** `[obj]` [Config](https://github.com/tmpvar/jsdom/#how-it-works) passed to JSDOM: <code>jsdom.jsdom(opts.html, <strong>opts.jsdom</strong>)</code>.
+
+  Eg. for [shimming unimplemented APIs](https://github.com/tmpvar/jsdom/#shimming-unimplemented-apis):
+
+  ```
+    koaSSR(root, {
+      jsdom: {
+        created: (e, window) => {
+          window.localStorage = new MockLocalStorage();
+        },
+      }
+    })
+  ```
 
 * **`modulesLoadedEventLabel`** `[str]` (default: **`'onModulesLoaded'`**) A special function is attached to `window[modulesLoadedEventLabel]` which \*\***must be called**\*\* to indicate that your app has finished rendering. Failure would result in a timeout and an error thrown (with `{ koaSSR: {ctx, window} }` property attached). See [JSDOM: Dealing with asynchronous script loading](https://github.com/tmpvar/jsdom/#dealing-with-asynchronous-script-loading) as to why you need this instead of relying on default `onload` or other such events. This can also be used as an indicator that your app is being rendered server-side so you may choose to deal with that aspect in your app as well.
 
-    Eg.
+  Eg.
 
-    **`server.js`**
+  **`client-app.js`**
 
-    ```
-      koaSSR(root, {...})
-    ```
+  ```
+    import {h, render} from 'preact'
 
-    **`client-app.js`**
+    if (window.onModulesLoaded) {
+      // rendered on server
+      const userData = window.userData // as attached in render function below
+    } else {
+      // not rendered on server
+      const userData = localStorage.get('userdata') || await fetch('/api/user...')
+    }
 
-    ```
-      import {h, render} from 'preact'
+    render(h('div', {...data}, ['Hello world!']), document.body)
 
-      if (!window.onModulesLoaded) {
-          // not rendered on server
-          const data = await localStorage.get('session')
-      }
-
-      render(h('div', {...data}, ['Hello world!']), document.body)
-
-      if (window.onModulesLoaded) {
-          // rendered on server
-          window.onModulesLoaded();
-      }
-    ```
+    if (window.onModulesLoaded) {
+        window.onModulesLoaded();
+    }
+  ```
 
 * **`cache`** `[bool|obj|function]` (default: **`true`**) Whether (and where/how) to cache JSDOM responses
   * **`false`** Doesn't uses a cache, JSDOM is run for every request
@@ -107,23 +113,54 @@ koaMiddleware = koaSSR(root, opts)
     * **`[window]`** JSDOM's window object ([`JSDOM.jsdom(...).defaultView`](https://github.com/tmpvar/jsdom/#for-the-hardcore-jsdomjsdom))
     * **`[serialize]`** Alias for [`JSDOM.serializeDocument`](https://github.com/tmpvar/jsdom/#serializing-a-document)
 
-    Eg.
+    The optional arguments (html, window, serialize) are passed only when the page was rendered with JSDOM. So when they're not passed, it expects you to return a pre-cached (if available) html string to use as a response instead. With this you can essentially control whether or not to actually invoke JSDOM for each request.
+
+    Eg. Caching to disk selectively
 
     ```
+      const cacheIndex = {}
       koaSSR(root, {
         cache: (ctx, html, window, serialize) => {
+          const url = URL.parse(ctx.url).path; // ignore '?query=xyz'
+          const filename = __dirname + '/.cache/' + sanitizeToFileName(url);
           if (html) {
-            // store into cache
-            someCache[ctx.url] = html
-            // or
-            someCache[ctx.url] = serialize(window.document)
+            fs.writeFile(filename, html);
+            cacheIndex[filename] = true;
+            return html;
           }
-          return someCache[ctx.url];
+          if (cacheIndex[filename]) {
+            ctx.type = 'html'; // (overrider stream's inferred type "application/octet-stream")
+            return fs.createReadStream(filename);
+          }
+          if (await fs.exists(filename)) { // cache exists from a previous run
+            cacheIndex[filename] = true;
+            ctx.type = 'html';
+            return fs.createReadStream(filename);
+          }
         }
       })
     ```
 
-* **`render`** `[func]` (defaut: **`(ctx, html) => ctx.body = html`**) Function responsible for sending the final `html` as a response to the client by setting `ctx.body=`.
+    Eg. Never cache and invoke JSDOM for each request:
+
+    ```
+      koaSSR(root, {
+        cache: (ctx, html, window, serialize) => {
+          if (!html) { return; } // never cached
+
+          // do things, like insert data
+          const script = window.document.createElement('script')
+          script.innerHTML = `
+            window.userData = ${await User.findOne(ctx.user)}
+          `
+          window.document.body.appendChild(script);
+
+          return serialize(window.document)
+        }
+      })
+    ```
+
+* **`render`** `[func]` (defaut: **`(ctx, html) => ctx.body = html`**) Final function responsible for sending the final `html` as a response to the client by setting `ctx.body=`.
 
   Called with args:
 
@@ -132,20 +169,23 @@ koaMiddleware = koaSSR(root, opts)
 
   Use this to customize response (even the cached response) for different users. Eg.
 
-    ```
-      koaSSR(root, {
-        render: async (ctx, html) => {
-          if (ctx.user) { // using either passport or jwt
-            html = html.replace('</body>', `
-              <script>
-                window.userData = ${await User.findOne(ctx.user)}
-              </script>
-            </body>`)
-          }
-          ctx.body = html
-        }
-      })
-    ```
+  ```
+    koaSSR(root, {
+      render: async (ctx, html) => {
+
+        html = html.replace('</body>', `
+          <script>
+            window.userData = ${await User.findOne(ctx.user)}
+            window.queryData = ${await Search.findResult(ctx.query)}
+          </script>
+        </body>`)
+
+        ctx.body = html
+      }
+    })
+  ```
+
+  Note that in an earlier `cache` eg. we returned a **stream** in which case (use [stream-replace](https://www.npmjs.com/search?q=stream+replace) because) `html` here would also have been the same stream object (`render` is invoked right after `cache`).
 
 [debug]: https://www.npmjs.com/package/debug
 [cheerio]: https://github.com/cheeriojs/cheerio

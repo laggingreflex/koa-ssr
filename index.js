@@ -103,9 +103,12 @@ module.exports = function koaSSRmiddleware(root, opts) {
           QuerySelector: true,
         },
 
-        resourceLoader: (resource, cb) => readFile(Path.join(root, resource.url.pathname))
-          .then(asset => cb(null, asset))
-          .catch(cb),
+        resourceLoader: (resource, cb) => {
+          debug({ resourceLoader: resource.url.pathname });
+          readFile(Path.join(root, resource.url.pathname))
+            .then(asset => cb(null, asset))
+            .catch(cb);
+        },
 
         virtualConsole: JSDOMVirtualConsole,
 
