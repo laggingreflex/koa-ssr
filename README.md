@@ -53,16 +53,6 @@ koaMiddleware = koaSSR(root, opts)
 * **`html`** `[str]` Instead of index.html, provide an html string
 * **`timeout`** `[num]` (default: **`5000`**) After which if JSDOM hasn't finished loading (i.e. `window[opts.modulesLoadedEventLabel]` hasn't been called (see below)) it throws an error (with `{ koaSSR: {ctx, window} }` property attached).
 
-* **`console`** `[obj]` (default: modified [debug] (set `DEBUG=koa-ssr:jsdom-client`)) `console` object for [JSDOM's `virtualConsole`](https://github.com/tmpvar/jsdom/#capturing-console-output) used as <code>jsdom.createVirtualConsole().sendTo(<strong>console</strong>)</code>
-
-  Eg.
-
-  ```
-    koaSSR(root, {
-      console: console // native console object
-    })
-  ```
-
 * **`jsdom`** `[obj]` [Config](https://github.com/tmpvar/jsdom/#how-it-works) passed to JSDOM: <code>jsdom.jsdom(opts.html, <strong>opts.jsdom</strong>)</code>.
 
   Eg. for [shimming unimplemented APIs](https://github.com/tmpvar/jsdom/#shimming-unimplemented-apis):
@@ -76,6 +66,42 @@ koaMiddleware = koaSSR(root, opts)
       }
     })
   ```
+
+* **`console`** `[obj]` (default: modified [debug] (set `DEBUG=koa-ssr:jsdom-client`)) `console` object for [JSDOM's `virtualConsole`](https://github.com/tmpvar/jsdom/#capturing-console-output) used as <code>jsdom.createVirtualConsole().sendTo(<strong>console</strong>)</code>
+
+  Eg.
+
+  ```
+    koaSSR(root, {
+      console: console // native console object
+    })
+  ```
+
+  Note: You can also do this manually in `opts.jsdom.virtualConsole`, this is just a shorter version. It also tries to infer the type of `console` (checking for `.log/err` etc methods) and adds the additional prefixes (`'[JSDOM]'`) to messages.
+
+* **`resourceLoader`** `[func]` (default: **`(res, cb, def) => def(res, cb)`**) Wrapper around [JSDOM's `resourceLoader`](https://github.com/tmpvar/jsdom/#custom-external-resource-loader) with an extra argument **`def`** to load resources automatically from `root`.
+
+  Eg.
+
+  ```
+    koaSSR(root, {
+      resourceLoader: (res, cb, def) => {
+        // either load the resource manually
+        fs.readFile(res.url.pathname, 'utf8', cb)
+
+        // or let koaSSR handle it
+        def(res, cb);
+
+        // or intercept
+        def(res, (err, body) => {
+          cb(null, body || 'something else')
+        })
+      }
+    })
+  ```
+
+  Note: You can also provide this option as `opts.jsdom.resourceLoader` but it won't have the additional third argument `def`.
+
 
 * **`modulesLoadedEventLabel`** `[str]` (default: **`'onModulesLoaded'`**) A special function is attached to `window[modulesLoadedEventLabel]` which \*\***must be called**\*\* to indicate that your app has finished rendering. Failure would result in a timeout and an error thrown (with `{ koaSSR: {ctx, window} }` property attached). See [JSDOM: Dealing with asynchronous script loading](https://github.com/tmpvar/jsdom/#dealing-with-asynchronous-script-loading) as to why it needs you to do this instead of relying on default `onload` or other such events. This can also be used as an indicator that your app is being rendered server-side so you may choose to deal with that aspect in your app as well.
 
@@ -103,7 +129,7 @@ koaMiddleware = koaSSR(root, opts)
 
 * **`cache`** `[bool|obj|function]` (default: **`true`**) Whether (and where/how) to cache JSDOM responses
   * **`false`** Doesn't uses a cache, JSDOM is run for every request
-  * **`true|{}`** Uses an object (created or provided) to store JSDOM generated response as <code><strong>{</strong>url: body<strong>}</strong></code>
+  * **`true|{}`** Uses an object in memory (created or provided) to store JSDOM generated response as <code><strong>{</strong>url: body<strong>}</strong></code>
   * **`function`** Delegate caching and retriving
 
     Called with args:
@@ -115,14 +141,14 @@ koaMiddleware = koaSSR(root, opts)
 
     The optional arguments (html, window, serialize) are passed only when the page was rendered with JSDOM. So when they're not passed, it expects you to return a pre-cached (if available) html string to use as a response instead. With this you can essentially control whether or not to actually invoke JSDOM for each request.
 
-    Eg. Caching to disk selectively
+    Eg. Caching to disk selectively (this functionality is available as a [helper function](#helpers) **`cacheToDisk`**)
 
     ```
       const cacheIndex = {}
       koaSSR(root, {
         cache: (ctx, html, window, serialize) => {
           const url = URL.parse(ctx.url).pathname; // ignore '?query=xyz'
-          const filename = __dirname + '/.ssr-cache/' + (_.kebabCase(url) || 'home');
+          const filename = '.ssr-cache/' + (_.kebabCase(url) || 'index') + '.html';
           if (html) {
             fs.writeFile(filename, html);
             cacheIndex[filename] = true;
@@ -140,10 +166,8 @@ koaMiddleware = koaSSR(root, opts)
         }
       })
     ```
-    <sub>(this functionality is available as a [helper function](#helpers) **cacheToDisk**)</sub>
 
-
-    Eg. Never cache; invoke JSDOM for each request:
+    Eg. Never cache; invoke JSDOM for every request:
 
     ```
       koaSSR(root, {
@@ -187,7 +211,7 @@ koaMiddleware = koaSSR(root, opts)
     })
   ```
 
-  Note that in an earlier `cache` eg. we returned a **stream** in which case (use [stream-replace](https://www.npmjs.com/search?q=stream+replace) because) `html` here would also have been the same stream object (`render` is invoked right after `cache`).
+  Note that in earlier eg. with `cache` we returned a **stream** in which case (use [stream-replace](https://www.npmjs.com/search?q=stream+replace) because) `html` here would also have been the same stream object (`render` is called with the result of `cache`).
 
 [debug]: https://www.npmjs.com/package/debug
 [cheerio]: https://github.com/cheeriojs/cheerio
@@ -212,6 +236,6 @@ Helper functions
 
   * **`parseUrl`** `[func]` (defaut: **`url => URL.parse(url).pathname`**) Parse the url
   * **`dir`** `[str]` (defaut: **`'.ssr-cache/'`**) Directory to use for cache files
-  * **`filename`** `[func]` (defaut: **`url => Path.join(opts.dir, (_.kebabCase(url) || 'home'))`**) Generate filename
+  * **`filename`** `[func]` (defaut: **`url => Path.join(opts.dir, (_.kebabCase(url)||'index')+'.html')`**) Generate filename
   * **`invalidatePrevious`** `[bool]` (defaut: **`false`**) Do not use cache created from a previous run
 

@@ -54,11 +54,46 @@ module.exports = function koaSSRmiddleware(root, opts) {
   const inputHtml = inputHtmlDom.html();
   debug({ inputHtml })
 
+  opts.jsdom = opts.jsdom || {};
+
+  if (opts.console && opts.jsdom.virtualConsole) {
+    throw new Error('Provide either `opts.console` or `opts.jsdom.virtualConsole`, not both');
+  }
+
   const JSDOMVirtualConsole = JSDOM.createVirtualConsole().sendTo(utils.createJSDOMVirtualConsole(opts.console || debugJSDOMClient, Boolean(opts.console)));
 
   opts.modulesLoadedEventLabel = 'onModulesLoaded'
 
   opts.render = opts.render || ((ctx, html) => ctx.body = html);
+
+  if (opts.resourceLoader && opts.jsdom.resourceLoader) {
+    throw new Error('Provide either `opts.resourceLoader` or `opts.jsdom.resourceLoader`, not both');
+  }
+
+  const defaultJSDOMResourceLoader = (res, cb) => {
+    debugJSDOM('Loading resource (default):', res.url.pathname);
+    readFile(Path.join(root, res.url.pathname))
+      .then(asset => {
+        debugJSDOM('Loaded resource (default):', res.url.pathname, `${(asset.length/(4*8))}B`);
+        cb(null, asset);
+      })
+      .catch(err => {
+        debugJSDOM(`Couldn't load resource (default):`, res.url.pathname);
+        cb(err)
+      });
+  };
+
+  opts.resourceLoader = opts.resourceLoader || ((res, cb, def) => def(resource, cb));
+
+  const JSDOMResourceLoader = (res, cb) => opts.resourceLoader(res, cb, (_res, _cb) => {
+    if (_cb && _cb !== cb) {
+      debugJSDOM('default resourceLoader callback intercepted')
+    }
+    if (_res && !_cb) {
+      debugJSDOM('Warning: opts.resourceLoader partially called `def` (no callback). Using default')
+    }
+    defaultJSDOMResourceLoader(_res || res, _cb || cb)
+  });
 
   return function koaSSR(ctx) {
 
@@ -99,16 +134,8 @@ module.exports = function koaSSRmiddleware(root, opts) {
           FetchExternalResources: ['script', 'link', 'css'],
           QuerySelector: true,
         },
-
-        resourceLoader: (resource, cb) => {
-          debugJSDOM({ resourceLoader: resource.url.pathname });
-          readFile(Path.join(root, resource.url.pathname))
-            .then(asset => cb(null, asset))
-            .catch(cb);
-        },
-
+        resourceLoader: JSDOMResourceLoader,
         virtualConsole: JSDOMVirtualConsole,
-
       }, opts.jsdom));
 
       const window = jsdom.defaultView;

@@ -13,7 +13,7 @@ exports.cacheToDisk = function cacheToDiskHelper(opts) {
 
   opts.parseUrl = opts.parseUrl || (url => URL.parse(url).pathname);
   opts.dir = opts.dir || '.ssr-cache';
-  opts.filename = opts.filename || (url => Path.join(opts.dir, (_.kebabCase(url) || 'home')));
+  opts.filename = opts.filename || (url => Path.join(opts.dir, (_.kebabCase(url) || 'index') + '.html'));
   opts.invalidatePrevious = opts.invalidatePrevious || false;
 
   const cacheIndex = {};
