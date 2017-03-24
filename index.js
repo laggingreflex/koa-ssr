@@ -131,6 +131,10 @@ module.exports = function koaSSRmiddleware(root, opts) {
     }
 
     function invokeJSDOM() {
+      debugJSDOM('Loading...')
+      const startTime = new Date();
+      const totalTime = () => (Date.now() - startTime) + 'ms';
+
       const jsdom = JSDOM.jsdom(opts.html, Object.assign({
         features: {
           FetchExternalResources: ['script', 'link', 'css'],
@@ -138,11 +142,48 @@ module.exports = function koaSSRmiddleware(root, opts) {
         },
         resourceLoader: JSDOMResourceLoader,
         virtualConsole: JSDOMVirtualConsole,
-      }, opts.jsdom));
+      }, opts.jsdom, {
+        created: (err, window) => {
+          if (err) {
+            debugJSDOM('[on created] error', err)
+            if (opts.jsdom.created) {
+              opts.jsdom.created(err, window)
+            } else {
+              throw err
+            }
+          }
+          debugJSDOM('[on created] ok')
+          if (opts.jsdom.created) {
+            opts.jsdom.created(err, window)
+          }
+        },
+        onload: (window) => {
+          debugJSDOM('[on onload] ok')
+          if (opts.jsdom.onload) {
+            opts.jsdom.onload(window)
+          }
+        },
+        done: (err, window) => {
+          if (err) {
+            debugJSDOM('[on done] error', err)
+            if (opts.jsdom.done) {
+              opts.jsdom.done(err, window)
+            } else {
+              throw err
+            }
+          }
+          debugJSDOM('[on done] ok')
+          if (opts.jsdom.done) {
+            opts.jsdom.done(err, window)
+          }
+        },
+      }));
+      debugJSDOM('loaded')
 
       const window = jsdom.defaultView;
 
       JSDOM.changeURL(window, fullUrl);
+      debugJSDOM('URL changed to:', fullUrl)
 
       let resolve;
       const loaded = new Promise(r => resolve = r);
@@ -153,6 +194,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
       };
 
       return Promise.race([loaded, delay(opts.timeout)]).then(() => {
+        debugJSDOM(opts.modulesLoadedEventLabel, 'fired in', totalTime());
         resolve();
         if (!loaded.loaded) {
           const err = new Error(`JSDOM Timed out (${parseInt(opts.timeout/1000, 10)}s), \`window.${opts.modulesLoadedEventLabel}\` was never called.`)
@@ -167,8 +209,10 @@ module.exports = function koaSSRmiddleware(root, opts) {
             script.setAttribute(modifiedScriptTags[src], true);
           }
         }
+        debugJSDOM(`restored modifiedScriptTags`);
 
         const preCache = JSDOM.serializeDocument(window.document);
+        debugJSDOM(`serialized preCache`);
 
         let final;
         if (typeof opts.cache === 'function') {
@@ -185,6 +229,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
                   throw error;
                 }
               }
+              debugJSDOM(`final opts.render in`, totalTime());
               return opts.render(ctx, final, window, JSDOM.serializeDocument)
             })
           } else {
@@ -196,6 +241,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
                 throw error;
               }
             }
+            debugJSDOM(`final opts.render in`, totalTime());
             return opts.render(ctx, final, window, JSDOM.serializeDocument);
           }
         } else {
@@ -203,6 +249,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
           if (opts.cache) {
             opts.cache[ctx.originalUrl] = final;
           }
+          debugJSDOM(`final opts.render in`, totalTime());
           return opts.render(ctx, final, window, JSDOM.serializeDocument);
         }
       });
