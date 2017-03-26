@@ -2,6 +2,7 @@ const assert = require('assert');
 const Path = require('path');
 const URL = require('url');
 const JSDOM = require('jsdom');
+const vm = require('vm');
 const cheerio = require('cheerio');
 const fs = require('fs-promise');
 const _ = require('lodash');
@@ -15,10 +16,14 @@ const debugJSDOM = Debug('koa-ssr:jsdom');
 const debugJSDOMClient = Debug('koa-ssr:jsdom-client');
 
 const readFile = _.memoize(f => fs.readFile(f, 'utf8'));
+const readFileSync = _.memoize(f => fs.readFileSync(f, 'utf8'));
 
 module.exports = function koaSSRmiddleware(root, opts) {
 
   assert(root, 'root directory is required to serve files');
+
+  const readAsset = (a, sync) => readFile(Path.join(root, a));
+  const readAssetSync = (a, sync) => readFileSync(Path.join(root, a));
 
   if (!opts) {
     opts = {}
@@ -29,7 +34,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
   }
 
   if (opts.index) {
-    opts.html = fs.readFileSync(Path.join(root, opts.index), 'utf8')
+    opts.html = readAssetSync(opts.index);
   }
 
   opts.timeout = opts.timeout || 5000;
@@ -39,20 +44,35 @@ module.exports = function koaSSRmiddleware(root, opts) {
   }
 
   const inputHtmlDom = cheerio.load(opts.html);
-  // Because JSDOM doesn't execute script with defer/async attribute: https://github.com/tmpvar/jsdom/issues?q=defer+OR+async
-  const modifiedScriptTags = {};
-  inputHtmlDom('body script').each((i, e) => {
-    e = inputHtmlDom(e);
-    if (e.attr('defer') || e.attr('async')) {
-      modifiedScriptTags[e.attr('src')] = e.attr('defer') ? 'defer' : e.attr('async') ? 'async' : false;
-      e.attr('defer', false)
-      e.attr('async', false)
-    }
-  });
-  debug({ modifiedScriptTags })
+
+  // Collect scripts
+  const scripts = Array.from(inputHtmlDom('body script')).map(e => ({
+    filename: e.attribs.src
+  })).map(s => Object.assign(s, {
+    code: readAssetSync(s.filename)
+  })).map(s => (Object.assign(s, {
+    script: new vm.Script(s.code, {
+      filename: s.filename,
+    })
+  })));
+
+  // remove script tags
+  inputHtmlDom('body script').remove()
+
+  // // Because JSDOM doesn't execute script with defer/async attribute: https://github.com/tmpvar/jsdom/issues?q=defer+OR+async
+  // const modifiedScriptTags = {};
+  // inputHtmlDom('body script').each((i, e) => {
+  //   e = inputHtmlDom(e);
+  //   if (e.attr('defer') || e.attr('async')) {
+  //     modifiedScriptTags[e.attr('src')] = e.attr('defer') ? 'defer' : e.attr('async') ? 'async' : false;
+  //     e.attr('defer', false)
+  //     e.attr('async', false)
+  //   }
+  // });
+  // debug({ modifiedScriptTags })
 
   const inputHtml = inputHtmlDom.html();
-  debug({ inputHtml })
+  debug('inputHtml:\n' + inputHtml)
 
   opts.jsdom = opts.jsdom || {};
 
@@ -135,7 +155,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
       const startTime = new Date();
       const totalTime = () => (Date.now() - startTime) + 'ms';
 
-      const jsdom = JSDOM.jsdom(opts.html, Object.assign({
+      const jsdom = JSDOM.jsdom(inputHtml, Object.assign({
         features: {
           FetchExternalResources: ['script', 'link', 'css'],
           QuerySelector: true,
@@ -193,6 +213,28 @@ module.exports = function koaSSRmiddleware(root, opts) {
         loaded.loaded = true;
       };
 
+      // debugJSDOM('Executing scripts...')
+      // scripts.forEach((s) => {
+      //   debugJSDOM('Executing', s.filename)
+      //   JSDOM.evalVMScript(window, s.script)
+      // });
+      // debugJSDOM('Executed scripts')
+
+      debugJSDOM('Executing scripts in a vm...')
+      const sandbox = Object.assign({ window, global: window }, window);
+      const context = vm.createContext(sandbox);
+      scripts.forEach((s) => {
+        debugJSDOM('Executing standalonw', s.filename)
+        try {
+          s.script.runInContext(context)
+          Object.assign(sandbox, sandbox.window)
+
+        } catch (error) {
+          console.log(`runInContext`, error);
+        }
+      });
+      debugJSDOM('Executed  standalonw scripts')
+
       return Promise.race([loaded, delay(opts.timeout)]).then(() => {
         debugJSDOM(opts.modulesLoadedEventLabel, 'fired in', totalTime());
         resolve();
@@ -202,14 +244,14 @@ module.exports = function koaSSRmiddleware(root, opts) {
           throw err;
         }
 
-        // restore modifiedScriptTags (async/defer)
-        for (const script of window.document.querySelectorAll('script')) {
-          const src = URL.parse(script.src).path;
-          if (src in modifiedScriptTags) {
-            script.setAttribute(modifiedScriptTags[src], true);
-          }
-        }
-        debugJSDOM(`restored modifiedScriptTags`);
+        // // restore modifiedScriptTags (async/defer)
+        // for (const script of window.document.querySelectorAll('script')) {
+        //   const src = URL.parse(script.src).path;
+        //   if (src in modifiedScriptTags) {
+        //     script.setAttribute(modifiedScriptTags[src], true);
+        //   }
+        // }
+        // debugJSDOM(`restored modifiedScriptTags`);
 
         const preCache = JSDOM.serializeDocument(window.document);
         debugJSDOM(`serialized preCache`);
