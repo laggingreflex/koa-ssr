@@ -4,6 +4,9 @@
   "description": "Koa server-side-rendering middleware using JSDOM",
   "main": "index.js",
   "repository": "laggingreflex/koa-ssr",
+  "engines": {
+    "node": ">=7.6"
+  },
   "dependencies": {
     "cheerio": "^0.22.0",
     "debug": "^2.6.3",
