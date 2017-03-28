@@ -3,6 +3,7 @@ const URL = require('url');
 const fs = require('fs-promise');
 const _ = require('lodash');
 const Debug = require('debug')
+const utils = require('./utils')
 
 exports.cacheToDisk = function cacheToDiskHelper(opts) {
   const debug = Debug('koa-ssr:helpers:cacheToDisk');
@@ -18,7 +19,7 @@ exports.cacheToDisk = function cacheToDiskHelper(opts) {
 
   const cacheIndex = {};
 
-  return function cacheToDisk(ctx, html) {
+  return function cacheToDisk(ctx, html, window, serialize) {
     debug({ 'ctx.url': ctx.url });
     const url = opts.parseUrl(ctx.url);
     debug({ url });

@@ -1,4 +1,5 @@
 const Debug = require('debug')
+const JSDOM = require('jsdom');
 
 exports.createJSDOMVirtualConsole = (console, prefix) => {
   const debug = Debug('koa-ssr:utils:createJSDOMVirtualConsole');
@@ -22,4 +23,32 @@ exports.createJSDOMVirtualConsole = (console, prefix) => {
     }
     return ret;
   }, {});
+}
+
+exports.handleUserHtmlModification = async([userFn, userFnLabel], [ctx, html, window]) => {
+  if (!userFn) {
+    return html;
+  }
+  userFnLabel = userFnLabel || userFn.name || 'userFn';
+  const debug = Debug('koa-ssr:utils:' + userFnLabel);
+  // debug('')
+  let ret
+  try {
+    ret = userFn(ctx, html, window, JSDOM.serializeDocument);
+    if (ret.then) {
+      ret = await ret;
+    }
+  } catch (err) {
+    err.message = `Error in ${userFnLabel}: ` + err.message
+  }
+  assert(ret, `${userFnLabel} didn't resolve to anything`)
+  if (typeof ret !== 'string') {
+    try {
+      ret = JSDOM.serializeDocument(ret.document);
+    } catch (error) {
+      error.message = `${userFnLabel}'s returned window object couldn't be serialized. ` + error.message;
+      throw error;
+    }
+  }
+  return ret;
 }

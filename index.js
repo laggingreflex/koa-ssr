@@ -199,26 +199,17 @@ module.exports = function koaSSRmiddleware(root, opts) {
     }
     debugJSDOM(`restored modifiedScriptTags`);
 
-    const preCache = JSDOM.serializeDocument(window.document);
+    let preCache = JSDOM.serializeDocument(window.document);
     debugJSDOM(`serialized preCache`);
+
+    if (opts.preCache) {
+      preCache = utils.handleUserHtmlModification([opts.preCache, 'opts.preCache'], [ctx, preCache, window])
+    }
 
     let final;
 
     if (typeof opts.cache === 'function') {
-      final = opts.cache(ctx, preCache, window, JSDOM.serializeDocument);
-      assert(final, `opts.cache() didn't return anything`)
-      if (final.then) {
-        final = await final;
-        assert(final, `opts.cache() didn't resolve to anything`)
-      }
-      if (typeof final !== 'string') {
-        try {
-          final = JSDOM.serializeDocument(final.document);
-        } catch (error) {
-          error.message = `Failed trying to serialize opts.cache()'s returned object. ` + error.message;
-          throw error;
-        }
-      }
+      final = utils.handleUserHtmlModification([opts.cache, 'opts.cache'], [ctx, preCache, window])
     }
 
     final = final || preCache;
