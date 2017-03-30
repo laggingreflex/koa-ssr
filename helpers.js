@@ -26,7 +26,7 @@ exports.cacheToDisk = function cacheToDiskHelper(opts) {
     const filename = opts.filename(url);
     debug({ filename });
     if (html) {
-      debug('caching...')
+      debug('Caching...', { filename, html: html.substr(0, 10) })
       return fs.outputFile(filename, html).then(() => {
         cacheIndex[filename] = true;
         debug('cached')

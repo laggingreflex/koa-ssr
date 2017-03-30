@@ -1,8 +1,9 @@
+const assert = require('assert');
 const Debug = require('debug')
 const JSDOM = require('jsdom');
 
 exports.createJSDOMVirtualConsole = (console, prefix) => {
-  const debug = Debug('koa-ssr:utils:createJSDOMVirtualConsole');
+  const debug = Debug('koa-ssr:utils:virtualConsole');
 
   debug({ prefix })
 
@@ -25,12 +26,13 @@ exports.createJSDOMVirtualConsole = (console, prefix) => {
   }, {});
 }
 
-exports.handleUserHtmlModification = async([userFn, userFnLabel], [ctx, html, window]) => {
+exports.handleUserHtmlModification = async([userFn, userFnLabel], [ctx, htmlArg, window]) => {
+  const debug = Debug('koa-ssr:utils:handleUserFn');
+  let html = htmlArg
   if (!userFn) {
     return html;
   }
   userFnLabel = userFnLabel || userFn.name || 'userFn';
-  const debug = Debug('koa-ssr:utils:' + userFnLabel);
   // debug('')
   let ret
   try {
@@ -41,7 +43,13 @@ exports.handleUserHtmlModification = async([userFn, userFnLabel], [ctx, html, wi
   } catch (err) {
     err.message = `Error in ${userFnLabel}: ` + err.message
   }
-  assert(ret, `${userFnLabel} didn't resolve to anything`)
+
+  // assert(ret, `${userFnLabel} didn't resolve to anything`)
+  if (!ret) {
+    debug(`${userFnLabel} didn't return anything`)
+    return htmlArg;
+  }
+
   if (typeof ret !== 'string') {
     try {
       ret = JSDOM.serializeDocument(ret.document);

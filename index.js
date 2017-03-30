@@ -180,15 +180,16 @@ module.exports = function koaSSRmiddleware(root, opts) {
       loaded.loaded = true;
     };
 
-    await Promise.race([loaded, delay(opts.timeout)]);
-
-    debugJSDOM(opts.modulesLoadedEventLabel, 'fired in', totalTime());
-    resolve();
-    if (!loaded.loaded) {
+    const timeout = delay(opts.timeout).then(() => {
+      debugJSDOM(`Timed out waiting for \`window.${opts.modulesLoadedEventLabel}\``);
       const err = new Error(`JSDOM Timed out (${parseInt(opts.timeout/1000, 10)}s), \`window.${opts.modulesLoadedEventLabel}\` was never called.`)
       err.koaSSR = { ctx, window };
       throw err;
-    }
+    });
+
+    await Promise.race([loaded, timeout]);
+
+    debugJSDOM(opts.modulesLoadedEventLabel, 'fired in', totalTime());
 
     // restore modifiedScriptTags (async/defer)
     for (const script of window.document.querySelectorAll('script')) {
@@ -203,13 +204,13 @@ module.exports = function koaSSRmiddleware(root, opts) {
     debugJSDOM(`serialized preCache`);
 
     if (opts.preCache) {
-      preCache = utils.handleUserHtmlModification([opts.preCache, 'opts.preCache'], [ctx, preCache, window])
+      preCache = await utils.handleUserHtmlModification([opts.preCache, 'opts.preCache'], [ctx, preCache, window])
     }
 
     let final;
 
     if (typeof opts.cache === 'function') {
-      final = utils.handleUserHtmlModification([opts.cache, 'opts.cache'], [ctx, preCache, window])
+      final = await utils.handleUserHtmlModification([opts.cache, 'opts.cache'], [ctx, preCache, window])
     }
 
     final = final || preCache;
@@ -220,6 +221,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
     }
 
     debug(`final opts.render in`, totalTime());
+
     return opts.render(ctx, final, window, JSDOM.serializeDocument);
   }
 }
