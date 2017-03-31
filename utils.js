@@ -11,13 +11,13 @@ exports.createJSDOMVirtualConsole = (console, prefix) => {
     const conLevel = console[level] || console.log || console;
     if (level === 'log') {
       if (prefix !== false) {
-        ret[level] = conLevel.bind(null, `[${prefix || 'JSDOM'}]`);
+        ret[level] = conLevel.bind(null, '[JSDOM]');
       } else {
         ret[level] = conLevel;
       }
     } else {
       if (prefix !== false) {
-        ret[level] = conLevel.bind(null, `[${prefix ? prefix + ' ' : 'JSDOM '}${level}]`);
+        ret[level] = conLevel.bind(null, `[JSDOM ${level}]`);
       } else {
         ret[level] = conLevel.bind(null, `[${level}]`);
       }
