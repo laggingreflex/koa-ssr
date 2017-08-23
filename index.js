@@ -181,7 +181,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
     };
 
     const timeout = delay(opts.timeout).then(() => {
-      debugJSDOM(`Timed out waiting for \`window.${opts.modulesLoadedEventLabel}\``);
+      debugJSDOM(`WARNING: Timed out waiting for \`window.${opts.modulesLoadedEventLabel}\`. Please make sure to call \`window.${opts.modulesLoadedEventLabel}\` from your app. You can check JSDOM error message either by setting env-var "DEBUG=koa-ssr:JSDOM*" or pass {console} in opts.`);
       const err = new Error(`JSDOM Timed out (${parseInt(opts.timeout/1000, 10)}s), \`window.${opts.modulesLoadedEventLabel}\` was never called. Please make sure to call \`window.${opts.modulesLoadedEventLabel}\` from your app. You can check JSDOM error message either by setting env-var "DEBUG=koa-ssr:JSDOM*" or pass {console} in opts.`)
       err.koaSSR = { ctx, window };
       throw err;
