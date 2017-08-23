@@ -60,7 +60,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
     throw new Error('Provide either `opts.console` or `opts.jsdom.virtualConsole`, not both');
   }
 
-  const JSDOMVirtualConsole = JSDOM.createVirtualConsole().sendTo(utils.createJSDOMVirtualConsole(opts.console || debugJSDOMClient, Boolean(opts.console)));
+  const JSDOMVirtualConsole = new JSDOM.VirtualConsole().sendTo(utils.createJSDOMVirtualConsole(opts.console || debugJSDOMClient, Boolean(opts.console)));
 
   opts.modulesLoadedEventLabel = 'onModulesLoaded'
 
@@ -122,7 +122,8 @@ module.exports = function koaSSRmiddleware(root, opts) {
     const startTime = new Date();
     const totalTime = () => (Date.now() - startTime) + 'ms';
 
-    const jsdom = JSDOM.jsdom(opts.html, Object.assign({
+    const dom = new JSDOM.JSDOM(opts.html, Object.assign({
+      url: fullUrl,
       features: {
         FetchExternalResources: ['script', 'link', 'css'],
         QuerySelector: true,
@@ -130,69 +131,18 @@ module.exports = function koaSSRmiddleware(root, opts) {
       resourceLoader: JSDOMResourceLoader,
       virtualConsole: JSDOMVirtualConsole,
     }, opts.jsdom, {
-      created: (err, window) => {
-        if (err) {
-          debugJSDOM('[on created] error', err)
-          if (opts.jsdom.created) {
-            opts.jsdom.created(err, window)
-          } else {
-            throw err
-          }
-        }
-        debugJSDOM('[on created] ok')
-        if (opts.jsdom.created) {
-          opts.jsdom.created(err, window)
-        }
-      },
-      onload: (window) => {
-        debugJSDOM('[on onload] ok')
-        if (opts.jsdom.onload) {
-          opts.jsdom.onload(window)
-        }
-      },
-      done: (err, window) => {
-        if (err) {
-          debugJSDOM('[on done] error', err)
-          if (opts.jsdom.done) {
-            opts.jsdom.done(err, window)
-          } else {
-            throw err
-          }
-        }
-        debugJSDOM('[on done] ok')
-        if (opts.jsdom.done) {
-          opts.jsdom.done(err, window)
+      beforeParse: window => {
+        debugJSDOM('[beforeParse]')
+
+        if (opts.jsdom.beforeParse) {
+          opts.jsdom.beforeParse(window)
         }
       },
     }));
-    debugJSDOM('loaded')
-
-    const window = jsdom.defaultView;
-
-    JSDOM.changeURL(window, fullUrl);
-    debugJSDOM('URL changed to:', fullUrl)
-
-    let resolve;
-    const loaded = new Promise(r => resolve = r);
-
-    window[opts.modulesLoadedEventLabel] = () => {
-      resolve();
-      loaded.loaded = true;
-    };
-
-    const timeout = delay(opts.timeout).then(() => {
-      debugJSDOM(`WARNING: Timed out waiting for \`window.${opts.modulesLoadedEventLabel}\`. Please make sure to call \`window.${opts.modulesLoadedEventLabel}\` from your app. You can check JSDOM error message either by setting env-var "DEBUG=koa-ssr:JSDOM*" or pass {console} in opts.`);
-      const err = new Error(`JSDOM Timed out (${parseInt(opts.timeout/1000, 10)}s), \`window.${opts.modulesLoadedEventLabel}\` was never called. Please make sure to call \`window.${opts.modulesLoadedEventLabel}\` from your app. You can check JSDOM error message either by setting env-var "DEBUG=koa-ssr:JSDOM*" or pass {console} in opts.`)
-      err.koaSSR = { ctx, window };
-      throw err;
-    });
-
-    await Promise.race([loaded, timeout]);
-
-    debugJSDOM(opts.modulesLoadedEventLabel, 'fired in', totalTime());
+    debugJSDOM('loaded');
 
     // restore modifiedScriptTags (async/defer)
-    for (const script of window.document.querySelectorAll('script')) {
+    for (const script of dom.window.document.querySelectorAll('script')) {
       const src = URL.parse(script.src).path;
       if (src in modifiedScriptTags) {
         script.setAttribute(modifiedScriptTags[src], true);
@@ -200,17 +150,17 @@ module.exports = function koaSSRmiddleware(root, opts) {
     }
     debugJSDOM(`restored modifiedScriptTags`);
 
-    let preCache = JSDOM.serializeDocument(window.document);
+    let preCache = dom.serialize();
     debugJSDOM(`serialized preCache`);
 
     if (opts.preCache) {
-      preCache = await utils.handleUserHtmlModification([opts.preCache, 'opts.preCache'], [ctx, preCache, window])
+      preCache = await utils.handleUserHtmlModification([opts.preCache, 'opts.preCache'], [ctx, preCache, dom])
     }
 
     let final;
 
     if (typeof opts.cache === 'function') {
-      final = await utils.handleUserHtmlModification([opts.cache, 'opts.cache'], [ctx, preCache, window])
+      final = await utils.handleUserHtmlModification([opts.cache, 'opts.cache'], [ctx, preCache, dom])
     }
 
     final = final || preCache;
@@ -222,7 +172,7 @@ module.exports = function koaSSRmiddleware(root, opts) {
 
     debug(`final opts.render in`, totalTime());
 
-    return opts.render(ctx, final, window, JSDOM.serializeDocument);
+    return opts.render(ctx, final, dom);
   }
 }
 

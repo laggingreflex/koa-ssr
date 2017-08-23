@@ -85,7 +85,7 @@ koaMiddleware = koaSSR(root, opts)
   ```
     koaSSR(root, {
       jsdom: {
-        created: (e, window) => {
+        beforeParse: (window) => {
           window.localStorage = new MockLocalStorage();
         },
       }
